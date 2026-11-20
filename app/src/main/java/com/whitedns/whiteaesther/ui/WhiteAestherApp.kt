@@ -98,7 +98,7 @@ private enum class Destination(val tab: Tab) {
     SAFETY(Tab.SETTINGS),
     DIAGNOSTICS(Tab.SETTINGS),
     IDENTITY(Tab.SETTINGS),
-    ABOUT(Tab.SETTINGS),
+    
 }
 
 @Composable
@@ -296,11 +296,11 @@ fun WhiteAestherApp(
                         onAddWidget = onAddWidget,
                         onGoToAdvanced = { openFromRow(Destination.ADVANCED) },
                         onGoToDiagnostics = { openFromRow(Destination.DIAGNOSTICS) },
-                        onGoToAbout = { openFromRow(Destination.ABOUT) },
+                        
                         isTelevision = isTelevision,
                         advancedModifier = Modifier.focusRequester(rowFocus.getValue(Destination.ADVANCED)),
                         diagnosticsModifier = Modifier.focusRequester(rowFocus.getValue(Destination.DIAGNOSTICS)),
-                        aboutModifier = Modifier.focusRequester(rowFocus.getValue(Destination.ABOUT)),
+                        
                     )
                     Destination.ADVANCED -> AdvancedScreen(
                         settings = settings,
@@ -395,10 +395,7 @@ fun WhiteAestherApp(
                         onImport = onImportIdentity,
                         onBack = ::goBack,
                     )
-                    Destination.ABOUT -> AboutScreen(
-                        nativeVersion = nativeVersion,
-                        settings = settings,
-                        onBack = ::goBack,
+                    
                     )
                 }
             }
