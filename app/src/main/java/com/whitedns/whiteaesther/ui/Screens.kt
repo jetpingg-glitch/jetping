@@ -2251,11 +2251,11 @@ fun SettingsScreen(
     onAddWidget: () -> Unit,
     onGoToAdvanced: () -> Unit,
     onGoToDiagnostics: () -> Unit,
-    onGoToAbout: () -> Unit,
+    
     isTelevision: Boolean = false,
     advancedModifier: Modifier = Modifier,
     diagnosticsModifier: Modifier = Modifier,
-    aboutModifier: Modifier = Modifier,
+    
     onBack: (() -> Unit)? = null,
 ) {
     ScreenColumn {
