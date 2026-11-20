@@ -2374,18 +2374,6 @@ fun SettingsScreen(
             }
         }
 
-        
-            
-            )
-            Divider()
-            RowCard(
-                icon = AetherIcons.Info,
-                title = stringResource(R.string.about_whiteaesther),
-                subtitle = stringResource(R.string.version_engine_build_and_licences),
-                modifier = aboutModifier.testTag("settings-about"),
-                onClick = onGoToAbout,
-            )
-        }
 
         Spacer(Modifier.height(12.dp))
         AetherCard {
