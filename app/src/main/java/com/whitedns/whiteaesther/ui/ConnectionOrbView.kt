@@ -1,6 +1,6 @@
 
 package com.whitedns.whiteaesther.ui
-
+import com.whitedns.whiteaesther.R
 import androidx.core.content.res.ResourcesCompat
 import androidx.annotation.FontRes
 
