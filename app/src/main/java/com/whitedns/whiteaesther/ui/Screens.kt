@@ -2525,44 +2525,7 @@ fun IdentityScreen(
 }
 
 @Composable
-fun AboutScreen(nativeVersion: String?, settings: AppSettings, onBack: () -> Unit) {
-    ScreenColumn {
-        CrumbBar(stringResource(R.string.settings_about), onBack = onBack)
-        PageTitle(stringResource(R.string.about_whiteaesther))
-        AetherCard {
-            FactRow(
-                stringResource(R.string.app_version),
-                "${com.whitedns.whiteaesther.BuildConfig.VERSION_NAME} (${com.whitedns.whiteaesther.BuildConfig.VERSION_CODE})",
-                mono = true,
-            )
-            Divider()
-            FactRow(stringResource(R.string.fact_engine), nativeVersion ?: stringResource(R.string.fact_unavailable), mono = true)
-            Divider()
-            FactRow(stringResource(R.string.fact_package), com.whitedns.whiteaesther.BuildConfig.APPLICATION_ID, mono = true)
-        }
-        Spacer(Modifier.height(12.dp))
-        AetherCard {
-            CardHead(stringResource(R.string.privacy_by_default))
-            Spacer(Modifier.height(6.dp))
-            FactRow(stringResource(R.string.proxy_bind), settings.proxyBindLabel(), mono = true)
-            Divider()
-            FactRow(stringResource(R.string.fact_backups), stringResource(R.string.fact_disabled))
-            Divider()
-            FactRow(stringResource(R.string.cleartext_traffic), stringResource(R.string.fact_blocked))
-        }
-        Spacer(Modifier.height(12.dp))
-        AetherCard {
-            CardHead(stringResource(R.string.licence_and_source))
-            Spacer(Modifier.height(6.dp))
-            FactRow(stringResource(R.string.fact_licence), "AGPL-3.0")
-            Divider()
-            FactRow(stringResource(R.string.fact_source), "github.com/WhiteDNS/WhiteAestherMobile", mono = true)
-        }
-        Note(
-            stringResource(R.string.whiteaesthermobile_and_the_aether_engine_it_embe),
-        )
-    }
-}
+
 
 // ----------------------------------------------------------- diagnostics ----
 
