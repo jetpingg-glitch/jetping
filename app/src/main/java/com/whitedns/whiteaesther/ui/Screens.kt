@@ -2374,8 +2374,7 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
-        AetherCard {
+        
             
             )
             Divider()
