@@ -2376,12 +2376,7 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(12.dp))
         AetherCard {
-            RowCard(
-                icon = AetherIcons.Pulse,
-                title = stringResource(R.string.settings_help),
-                subtitle = stringResource(R.string.see_what_happened_and_send_a_report),
-                modifier = diagnosticsModifier.testTag("settings-diagnostics"),
-                onClick = onGoToDiagnostics,
+            
             )
             Divider()
             RowCard(
