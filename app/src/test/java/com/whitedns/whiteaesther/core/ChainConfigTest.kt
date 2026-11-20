@@ -1,0 +1,191 @@
+package com.whitedns.whiteaesther.core
+
+import com.whitedns.whiteaesther.data.ChainSettings
+import com.whitedns.whiteaesther.data.ChainSource
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+class ChainConfigTest {
+    private val settings = ChainSettings(
+        enabled = true,
+        sources = listOf(ChainSource("Test", "https://example.invalid/sub#token", true)),
+    )
+
+    @Test
+    fun automaticSelectionUsesTheExistingProvidersAndNeverFallsBackToDirect() {
+        val config = ChainConfig.render(settings, socksPort = 1819)
+        assertTrue(config.contains("name: __whiteaesther_auto\n    type: url-test"))
+        assertTrue(config.contains("proxies: [__whiteaesther_auto]"))
+        assertTrue(config.contains("empty-fallback: REJECT"))
+        assertTrue(config.contains("tolerance: 100"))
+        assertTrue(config.contains("https://www.gstatic.com/generate_204"))
+        assertTrue(config.endsWith("  - MATCH,exit\n"))
+    }
+
+    @Test
+    fun automaticSelectionExcludesHiddenNamesAsLiteralWholeNames() {
+        val config = ChainConfig.render(
+            settings.copy(hiddenNodes = listOf("node.+(one)", "node|two")),
+            socksPort = 1819,
+        )
+        assertTrue(config.contains("exclude-filter:"))
+        assertTrue(config.contains("node\\\\.\\\\+\\\\(one\\\\)"))
+        assertTrue(config.contains("node\\\\|two"))
+    }
+
+    @Test
+    fun everySourceIsDialledThroughTheTunnel() {
+        val config = ChainConfig.render(settings, socksPort = 1819)
+
+        // The one line that makes a subscription of any size inherit the tunnel
+        // without us parsing a single entry. Losing it is the failure that would
+        // not look like a failure -- the chain would still work, and every node
+        // would be dialled straight off the local network.
+        assertTrue(config.contains("dialer-proxy: ${ChainConfig.TUNNEL_PROXY}"))
+        assertTrue(
+            config.contains(
+                "- {name: ${ChainConfig.TUNNEL_PROXY}, type: socks5, " +
+                    "server: 127.0.0.1, port: 1819, udp: true}",
+            ),
+        )
+    }
+
+    @Test
+    fun subscriptionIsFetchedOutsideTheExitItFills() {
+        // Unset, the fetch went through MATCH,exit while the exit group was
+        // still empty and was refused (`exit[REJECT]`), so no subscription loaded.
+        val tunnel = ChainConfig.render(settings, socksPort = 1819)
+        assertTrue(tunnel.contains("    proxy: ${ChainConfig.TUNNEL_PROXY}\n"))
+        assertTrue(tunnel.contains("dialer-proxy: ${ChainConfig.TUNNEL_PROXY}"))
+
+        val direct = ChainConfig.render(settings.copy(manual = "vless://pasted"), socksPort = null)
+        assertTrue(direct.contains("    proxy: DIRECT\n"))
+        // The pasted block is a file: nothing to fetch, so no route.
+        val manual = direct.substringAfter("  ${ChainConfig.MANUAL_PROVIDER}:").substringBefore("health-check")
+        assertFalse(manual.contains("proxy:"))
+    }
+
+    @Test
+    fun probeListenerIsLoopbackOnlyAndAuthenticated() {
+        val auth = SocksAuth("u0", "p0")
+        val config = ChainConfig.render(settings, socksPort = 1819, probe = 4321 to auth)
+        assertTrue(
+            config.contains(
+                "  - {name: ${ChainConfig.PROBE_LISTENER}, type: socks, listen: 127.0.0.1, port: 4321, " +
+                    "udp: false, users: [{username: u0, password: p0}]}\n",
+            ),
+        )
+        assertFalse(ChainConfig.render(settings, socksPort = 1819).contains("listeners:"))
+    }
+
+    @Test
+    fun proxyCoverageHandsTheUserPortToTheChain() {
+        val local = ChainConfig.render(settings, socksPort = 4000, inbound = ChainConfig.ProxyInbound(1819, false, "", ""))
+        assertTrue(local.contains("  - {name: ${ChainConfig.PROXY_LISTENER}, type: mixed, listen: 127.0.0.1, port: 1819, udp: true}\n"))
+
+        val shared = ChainConfig.render(settings, socksPort = 4000, inbound = ChainConfig.ProxyInbound(1819, true, "me", "p\"w"))
+        assertTrue(shared.contains("listen: 0.0.0.0, port: 1819, udp: true, users: [{username: \"me\", password: \"p\\\"w\"}]}"))
+        assertEquals(1, shared.lines().count { it == "listeners:" })
+    }
+
+    @Test
+    fun managedWorkerIsASeparateFileProviderAndSurvivesStorage() {
+        val worker = ChainSettings(enabled = true, worker = "{\"proxies\":[]}")
+        assertTrue(worker.hasNodes)
+        assertEquals(worker, ChainSettings.decode(worker.encode()))
+        val config = ChainConfig.render(worker, socksPort = null)
+        assertTrue(config.contains("path: ./providers/worker.yaml"))
+        assertTrue(config.contains("use: [worker]"))
+    }
+
+    @Test
+    fun resolversAreDialledThroughTheTunnelToo() {
+        val config = ChainConfig.render(settings, socksPort = 1819)
+
+        // A query that escapes names the destination even when the traffic does
+        // not, and on this platform it would be answered by the interface that
+        // asked it.
+        assertTrue(config.contains("- https://1.1.1.1/dns-query#${ChainConfig.TUNNEL_PROXY}"))
+        assertTrue(config.contains("- https://dns.google/dns-query#${ChainConfig.TUNNEL_PROXY}"))
+    }
+
+    @Test
+    fun nothingIsRoutedDirect() {
+        val config = ChainConfig.render(settings, socksPort = 1819)
+
+        assertTrue(config.contains("- MATCH,${ChainConfig.EXIT_GROUP}"))
+        // Exactly one rule. Any second one is a way for traffic to reach the
+        // local network in the clear.
+        assertEquals(1, config.lines().count { it.trimStart().startsWith("- MATCH") })
+        assertFalse(config.contains(",DIRECT"))
+    }
+
+    @Test
+    fun withoutATunnelNothingClaimsToUseOne() {
+        val config = ChainConfig.render(settings, socksPort = null)
+
+        // A socks5 proxy pointing at a port nothing is listening on would fail
+        // every node it fronted, so with the tunnel off it is not declared at
+        // all rather than declared and dead.
+        assertFalse(config.contains("dialer-proxy"))
+        assertFalse(config.contains("type: socks5"))
+        assertFalse(config.contains("dns-query#"))
+    }
+
+    @Test
+    fun subscriptionUrlsSurviveYaml() {
+        val config = ChainConfig.render(settings, socksPort = 1819)
+
+        // Unquoted, the '#' in a subscription URL starts a YAML comment and the
+        // provider silently loses everything after it.
+        assertTrue(config.contains("url: \"https://example.invalid/sub#token\""))
+    }
+
+    @Test
+    fun pastedNodesBecomeAFileProvider() {
+        val config = ChainConfig.render(
+            settings.copy(sources = emptyList(), manual = "vless://example"),
+            socksPort = 1819,
+        )
+
+        assertTrue(config.contains("${ChainConfig.MANUAL_PROVIDER}:"))
+        assertTrue(config.contains("type: file"))
+        assertTrue(config.contains("use: [${ChainConfig.MANUAL_PROVIDER}]"))
+    }
+
+    @Test
+    fun noSourcesIsRefusedBeforeItReachesMihomo() {
+        // An empty group is a config mihomo rejects, and the reason it gives
+        // names YAML rather than the empty subscription behind it.
+        val error = runCatching {
+            ChainConfig.render(ChainSettings(enabled = true), socksPort = 1819)
+        }.exceptionOrNull()
+        assertTrue(error is IllegalArgumentException)
+    }
+
+    @Test
+    fun theInterfaceDoesNotOverlapAHomeNetwork() {
+        // 198.18/15 is benchmarking space. RFC1918 would be the obvious choice
+        // and the wrong one: a phone's own network is very likely on 192.168/16
+        // or 10/8, and an overlap there captures the local subnet.
+        assertTrue(ChainConfig.TUN_IPV4.startsWith("198.18."))
+        assertTrue(ChainConfig.TUN_DNS.startsWith("198.18."))
+        assertTrue(ChainConfig.TUN_IPV6.startsWith("fdfe:"))
+    }
+
+    /**
+     * Writes what the app would hand mihomo, so it can be checked with a real
+     * `mihomo -t`. Assertions above describe the file; only mihomo can say
+     * whether it parses.
+     */
+    @Test
+    fun renderedConfigIsWrittenForExternalValidation() {
+        val target = File("build/chain-config/config.yaml")
+        target.parentFile?.mkdirs()
+        target.writeText(ChainConfig.render(settings, socksPort = 1819))
+        assertTrue(target.length() > 0)
+    }
+}

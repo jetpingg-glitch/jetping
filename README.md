@@ -1,0 +1,218 @@
+<div align="center">
+
+# WhiteAestherMobile
+
+**Android client for the Aether encrypted route engine.**
+Finds a working path out of restrictive networks and carries your traffic through it.
+
+[![Release](https://img.shields.io/github/v/release/WhiteDNS/WhiteAestherMobile?style=flat-square&color=34d1a6)](https://github.com/WhiteDNS/WhiteAestherMobile/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/WhiteDNS/WhiteAestherMobile/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/WhiteDNS/WhiteAestherMobile/actions/workflows/ci.yml)
+[![Licence](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
+[![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84?style=flat-square&logo=android&logoColor=white)](#requirements)
+
+</div>
+
+<!-- SCREENSHOTS -->
+
+## Install
+
+Grab the APK for your phone from the [latest release](https://github.com/WhiteDNS/WhiteAestherMobile/releases/latest).
+
+| File | Use it if |
+| --- | --- |
+| `arm64-v8a` | **Almost every phone from 2017 onward.** Start here. |
+| `armeabi-v7a` | Older or budget 32-bit devices |
+| `x86_64` | Emulators, ChromeOS |
+| `universal` | You are not sure. Works everywhere, roughly three times the size. |
+| `.aab` | Play Store submission, not for sideloading |
+
+Verify what you downloaded against `SHA256SUMS` in the same release:
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+Android will warn about installing outside the Play Store. That is expected for a
+sideloaded APK.
+
+> **راهنمای فارسی:** [docs/GUIDE.fa.md](docs/GUIDE.fa.md) -- installing, first run, and what to change when a
+> network blocks the connection.
+
+> **تنظیمات هستهٔ ۲.۳:** [آموزش TLS، ECH و Verified edges](docs/GUIDE.fa.md#aether-23) — defaults, input examples, manual testing and restoring previous settings.
+
+> **ادغام هستهٔ ۲.۴:** [تغییرات API، identity و TLS](docs/AETHER_2_4_MERGE.md) — resumable activation, compatible saved settings and API-26 Android builds.
+
+## First run
+
+**1. Leave the mode on VPN on the Connect screen.** This protects the whole
+device by default. The **Apps** tab opens per-app routing. **Proxy** only starts
+the local SOCKS5 listener; apps must be pointed at 127.0.0.1:1819 to use it.
+
+**2. Leave the connection method on Automatic.** Tap the method card on Connect
+to choose Fast (Aether), Hard to block (Psiphon), Anonymous (Tor), or your own
+server. A method with something to set opens it inside its own card: Aether's
+network profile, Psiphon's exit country, Tor's bridges. Automatic finds a working
+method for the network and remembers what succeeded.
+
+Aether's network profiles open inside its card. Adaptive is the default; these
+presets tune the Aether transport and discovery settings:
+
+| Profile | For |
+| --- | --- |
+| **Adaptive** | Most networks. Start here. |
+| **Patchy signal** | Mobile data that keeps dropping — searches harder |
+| **Strict network** | Office or campus Wi-Fi that blocks a lot — quieter probing, slower |
+| **Manual** | You set the transport and search depth yourself |
+
+**3. Allow background running when asked.** Open the **Settings** tab. A card appears if
+Android is still allowed to suspend the app. Without the exemption the tunnel
+drops when the screen goes off — some manufacturers are far more aggressive about
+this than others.
+
+**4. Expect the first connect to take a moment.** The engine tests real network
+paths before accepting one. If a path fails it backs off and retries, and the
+retry events are available under Connection details and **Settings → Help and problem report**.
+
+## When it will not connect
+
+The Connect screen shows a short status and a useful action when an attempt
+fails. Open **Connection details** for the engine's original message, or
+**Settings → Help and problem report** for the full diagnostic history.
+
+| What you see | What it means |
+| --- | --- |
+| `... · retry 3 of 8 in 12s` | A path failed and it is trying another. Normal on a hostile network. |
+| `Could not reach Tor's bridge service` | Tap **Fetch bridges** while connected through Aether or Psiphon, or paste bridges from @GetBridgesBot. |
+| `... is looking for a way out` | A carrier is establishing. Psiphon tries many protocols at once; Tor fetches a consensus and builds a circuit. A minute is normal, and behind a bridge rather more. |
+| `Stopped after 8 attempts` | Nothing worked here. Try a different profile or network. |
+| `custom endpoint ... failed MASQUE validation` | The address you pinned is not reachable. Switch **Endpoint** back to Automatic. |
+| `Connected to a different endpoint` | Your pinned address failed and fallback substituted a working one. |
+
+Worth trying, in order: choose **Strict network** in Aether's card; set
+**Addresses** to *IPv4 only* under **Settings → Advanced → Network and device** if the network handles IPv6 badly,
+or to *IPv6 only* if its IPv6 is the cleaner path (this picks which Cloudflare
+addresses the engine dials, not what apps see in the tunnel); turn
+**Obfuscation** up to *Aggressive* under **Settings → Advanced → Aether → Traffic disguise**.
+
+Under **Settings → Help and problem report** you can raise the detail level, reproduce the
+problem, and send a report. It shows you the exact text before anything is sent,
+and replaces IP addresses with placeholders unless you turn that off.
+
+## How it works
+
+Aether probes reachable Cloudflare endpoints, completes an authenticated MASQUE
+handshake against them, and only accepts a route once real traffic returns
+through it. The app then either raises an Android `VpnService` tunnel that
+captures IPv4, IPv6 and DNS, or exposes a loopback SOCKS5 proxy.
+
+- **Carrier** — Automatic by default. From the method card, Aether, Psiphon or Tor can carry
+  the tunnel instead: each finds its own way out and the app routes the whole
+  device into it. Both are slower, and one of them is someone else's network, so
+  they are there for the networks Aether cannot get out of rather than as equal
+  choices. Tor carries no UDP, which the app declares rather than discovers
+- **Transports** — MASQUE over HTTP/2 (TLS over TCP) first on an unproven network,
+  with HTTP/3 (QUIC) available during recovery. The tunnel uses `www.cloudflare.com`
+  as its TLS server name; a route that worked on this network takes priority next time
+- **Obfuscation** — padding profiles that make tunnel traffic harder to
+  fingerprint
+- **Endpoints** — discovered automatically, or pinned to a specific `IP:port`
+  with optional fallback
+- **Identity** — provisioned on first connect. By default, TCP edge probes feed a
+  race between raw TLS, split ClientHello and ECH; only the winning authenticated
+  handshake sends the API request. The private key stays in app-private storage
+- **Exit chain** — an optional second hop after the tunnel, so sites see your
+  own node rather than Cloudflare. Nodes come from a subscription or pasted
+  links, and are dialled from inside the tunnel by default so neither your
+  network nor the node learns the other'''s address
+
+The exit chain also offers automatic node selection. Routing rules include
+opt-in local-network, `.ir` and common ad/tracker presets, and lists imported
+from a file on the phone (plain names, hosts files, CIDRs or Clash rule
+lists), each reported with what was left out and why. Psiphon's local
+adapter forwards UDP as well as TCP; Tor remains TCP only. The Cloudflare
+Workers screen can deploy and manage your own TCP proxy on Workers or Pages.
+See [connection improvements](docs/CONNECTION_IMPROVEMENTS.md) and
+[Worker setup](docs/WORKER_SETUP.md) for behavior and limits.
+
+## Requirements
+
+Android 8.0 (API 26) or newer, on `arm64-v8a`, `armeabi-v7a` or `x86_64`.
+
+## Build from source
+
+```bash
+git clone https://github.com/WhiteDNS/WhiteAestherMobile.git
+cd WhiteAestherMobile
+./gradlew assembleStableDebug
+```
+
+Needs JDK 21, Android SDK 37.2 with NDK `29.0.14206865` and CMake 3.22.1, and Rust
+1.98.0 with the Android targets plus `cargo-ndk`. The Gradle build compiles the
+Rust bridge itself.
+
+`./gradlew :app:compileStableDebugKotlin` skips the native build and is the fast
+loop when only touching Kotlin.
+
+Two things Gradle does not build for you. The exit chain's Go library, which the
+Psiphon carrier also needs to reach the interface:
+
+```powershell
+pwsh -File native/chain/setup.ps1
+pwsh -File native/chain/build.ps1
+```
+
+Psiphon's bootstrap server list, which is data rather than code and is not
+committed:
+
+```powershell
+pwsh -File native/psiphon/setup.ps1
+```
+
+and Tor's pluggable transports, which are Go programs built as Android
+executables:
+
+```powershell
+pwsh -File native/tor/setup.ps1
+pwsh -File native/tor/build.ps1
+```
+
+A build missing either still installs and runs; the feature that needs it says
+so rather than failing at connect time on somebody's phone.
+
+## Repository layout
+
+| Path | |
+| --- | --- |
+| `app/` | The Android application |
+| `native/aether/` | Vendored Aether engine |
+| `native/psiphon/` | The Psiphon carrier: what to fetch, and why it is a separate process |
+| `native/android-bridge/` | Rust JNI bridge between the two |
+| `design/` | Clickable design prototype and the notes from building it |
+| `docs/` | Release process and device test plan |
+
+`design/PORT-STATUS.md` records what was verified against the engine and what is
+still outstanding — worth reading before changing the connection UI.
+
+## Releasing
+
+CI verifies every pull request and every push to `main`. Publishing happens on
+tags alone:
+
+```bash
+git tag v1.2.3 && git push origin v1.2.3
+```
+
+That builds, tests, signs, verifies every APK, and publishes the release.
+
+## Privacy
+
+No analytics, no telemetry, no accounts. The proxy binds to loopback only,
+cleartext traffic is blocked, backups are disabled, and diagnostics reports are
+never sent without you reviewing them first. See [PRIVACY.md](PRIVACY.md).
+
+## Licence
+
+[AGPL-3.0](LICENSE), as is the Aether engine it embeds. The exit chain is built
+on mihomo, which is GPL-3.0; AGPL-3.0 section 13 permits the combination, and
+each part keeps its own licence. Components, revisions, and the one modification
+we make are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

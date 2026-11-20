@@ -1,0 +1,468 @@
+package com.whitedns.whiteaesther.core
+
+import com.whitedns.whiteaesther.data.ChainSettings
+import com.whitedns.whiteaesther.data.RouteRule
+
+/**
+ * Renders the mihomo configuration for the exit chain.
+ *
+ * A port of the desktop's `chain.rs::render`, re-reviewed against a tun rather
+ * than copied. The desktop hands applications a mixed port and anything that
+ * misses the chain merely goes out in the clear -- bad, but it terminates. Here
+ * the interface carries `0.0.0.0/0` and `::/0`, so a connection that escapes the
+ * chain is pulled back into the tunnel that is creating it. Every difference
+ * below comes from that.
+ */
+object ChainConfig {
+    /** The SOCKS5 proxy standing in for the Aether tunnel. */
+    const val TUNNEL_PROXY = "aether"
+
+    /** The group everything is routed through. */
+    const val EXIT_GROUP = "exit"
+
+    const val AUTOMATIC_GROUP = "__whiteaesther_auto"
+
+    const val MANUAL_PROVIDER = "manual"
+    const val WORKER_PROVIDER = "worker"
+
+    /**
+     * The interface addresses mihomo is told it owns.
+     *
+     * Carrier-grade NAT space, not RFC1918: a phone's own network is very likely
+     * to be using 192.168/16 or 10/8, and an overlap there would capture the
+     * local subnet.
+     */
+    const val TUN_IPV4 = "198.18.0.1/30"
+    const val TUN_IPV6 = "fdfe:dcba:9876::1/126"
+
+    /** Where the system resolver points, and what mihomo hijacks. */
+    const val TUN_DNS = "198.18.0.2"
+
+    /**
+     * gVisor rather than the system stack.
+     *
+     * The system stack needs the kernel to hand it packets for an interface it
+     * did not create, which is not something an unprivileged Android app can
+     * arrange. gVisor terminates TCP in userspace and is what FlClash ships on
+     * Android for the same reason.
+     */
+    const val TUN_STACK = "gvisor"
+
+    private const val HEALTH_CHECK_URL = "https://www.gstatic.com/generate_204"
+
+    /**
+     * @param socksPort the port the carrying tunnel's SOCKS5 listener is on, or
+     *   null to dial nodes directly rather than through a tunnel.
+     * @param proxyName what that tunnel is called in the config it appears in.
+     *   Named rather than fixed because the engine is no longer the only thing
+     *   that can be in front of the chain: a carrier ends in the same shape of
+     *   listener, and a config calling Psiphon "aether" would mislead every log
+     *   line and screen that reads a proxy name back.
+     */
+    /** Hex tokens from [SocksAuth.random], so they need no YAML quoting. */
+    private fun credentials(auth: SocksAuth?): String =
+        auth?.let { ", username: ${it.user}, password: ${it.password}" }.orEmpty()
+
+    fun render(
+        settings: ChainSettings,
+        socksPort: Int?,
+        proxyName: String = TUNNEL_PROXY,
+        auth: SocksAuth? = null,
+        probe: Pair<Int, SocksAuth>? = null,
+        inbound: ProxyInbound? = null,
+    ): String = buildString {
+        // No external-controller. The desktop needs one because mihomo is a
+        // separate process there; in-process we drive it through the action
+        // protocol, so binding a control API would add an attack surface that
+        // nothing uses -- any page the user opens could reach a loopback port.
+        append("mode: rule\n")
+        append("log-level: info\n")
+        append("ipv6: true\n")
+        // Off. Rules match on destination only, and resolving the owning process
+        // for every connection costs a /proc walk per socket on a phone.
+        append("find-process-mode: off\n")
+
+        appendDns(socksPort, proxyName, settings.remoteDns)
+        appendSniffer(settings)
+
+        val through = if (socksPort != null) {
+            append("proxies:\n")
+            // True because this upstream is only ever the engine's own
+            // listener, which implements UDP ASSOCIATE -- see socks.rs. A
+            // carrier that does not gets renderCarrier, not this.
+            append(
+                "  - {name: $proxyName, type: socks5, server: 127.0.0.1, " +
+                    "port: $socksPort${credentials(auth)}, udp: true}\n",
+            )
+            "\n    dialer-proxy: $proxyName"
+        } else {
+            ""
+        }
+
+        // The route mihomo fetches a subscription over. Left unset the fetch goes
+        // through the rules, hits MATCH,exit while the exit group is still empty
+        // (this very fetch fills it), and is refused: no subscription ever loads.
+        val fetch = if (socksPort != null) proxyName else "DIRECT"
+        val names = appendProviders(settings, through, fetch)
+
+        // A group with nothing in it is a config mihomo rejects, and the reason
+        // it gives names YAML rather than the empty subscription behind it.
+        require(names.isNotEmpty()) { "The chain has no node sources" }
+
+        append("proxy-groups:\n")
+        append("  - name: $AUTOMATIC_GROUP\n    type: url-test\n    use: [${names.joinToString(", ")}]\n")
+        append("    url: $HEALTH_CHECK_URL\n    expected-status: 204\n    interval: 300\n    tolerance: 100\n    empty-fallback: REJECT\n")
+        if (settings.hiddenNodes.isNotEmpty()) {
+            val excluded = settings.hiddenNodes.joinToString("|", "^(?:", ")$") { name ->
+                name.map { character ->
+                    when {
+                        character == '`' -> "\\x60"
+                        character in "\\.^$|?*+()[]{}" -> "\\$character"
+                        else -> character.toString()
+                    }
+                }.joinToString("")
+            }
+            append("    exclude-filter: ${quote(excluded)}\n")
+        }
+        append("  - name: $EXIT_GROUP\n    type: select\n    use: [${names.joinToString(", ")}]\n")
+        append("    proxies: [$AUTOMATIC_GROUP]\n    empty-fallback: REJECT\n")
+
+        appendRules(settings)
+
+        // This process is excluded from the tun, so the app can only see the
+        // exit the way websites do by asking through mihomo. Its own users
+        // list means the loopback skip-auth default never applies to it.
+        if (probe != null || inbound != null) append("listeners:\n")
+        probe?.let { (port, credentials) ->
+            append(
+                "  - {name: $PROBE_LISTENER, type: socks, listen: 127.0.0.1, port: $port, udp: false, " +
+                    "users: [{username: ${credentials.user}, password: ${credentials.password}}]}\n",
+            )
+        }
+        // Proxy coverage: the port the user points apps at, now in front of the
+        // chain, with the same reach and credentials the engine would have had.
+        inbound?.let {
+            val users = if (it.user.isNotEmpty()) {
+                ", users: [{username: ${quote(it.user)}, password: ${quote(it.password)}}]"
+            } else {
+                ""
+            }
+            append(
+                "  - {name: $PROXY_LISTENER, type: mixed, listen: ${if (it.lan) "0.0.0.0" else "127.0.0.1"}, " +
+                    "port: ${it.port}, udp: true$users}\n",
+            )
+        }
+    }
+
+    const val PROBE_LISTENER = "whiteaesther-probe"
+    const val PROXY_LISTENER = "whiteaesther-proxy"
+
+    /** The user-facing proxy port, when the chain runs without the interface. */
+    data class ProxyInbound(val port: Int, val lan: Boolean, val user: String, val password: String) {
+        override fun toString(): String = "ProxyInbound(port=$port, lan=$lan)"
+    }
+
+    /** The SOCKS5 proxy standing in for a carrier that is not the engine. */
+    const val CARRIER_PROXY = "carrier"
+
+    /**
+     * Everything through one upstream SOCKS5, with no exit chain in front.
+     *
+     * This is what a carrier that is not the engine needs from mihomo, and it is
+     * less than [render] does: there are no nodes to choose from and no group to
+     * choose with, only a proxy and a default route into it. mihomo is here as
+     * the thing that terminates the interface -- Psiphon hands us a listener on
+     * loopback, and a listener cannot carry a tun.
+     *
+     * The user's block and direct rules still apply. They are the same rules the
+     * engine path honours, and a different carrier is not a reason to stop.
+     *
+     * \nparam socksPort the carrier's SOCKS5 listener, with its tunnel already
+     *   established. A port that is merely listening is not enough: traffic
+     *   routed into a proxy whose tunnel has not come up is dropped rather than
+     *   refused, which the phone experiences as everything hanging.
+     * \nparam udp whether the carrier's listener forwards UDP -- see
+     *   Carrier.carriesUdp, which is where that answer is kept. A proxy
+     *   declared `udp: true` that cannot carry it
+     *   swallows every datagram -- DNS and QUIC failing silently while TCP
+     *   works, which is the hardest shape of broken to recognise.
+     */
+    fun renderCarrier(
+        settings: ChainSettings,
+        socksPort: Int,
+        udp: Boolean = true,
+        auth: SocksAuth? = null,
+    ): String =
+        buildString {
+            append("mode: rule\n")
+            append("log-level: info\n")
+            append("ipv6: true\n")
+            append("find-process-mode: off\n")
+
+            appendDns(socksPort, CARRIER_PROXY, settings.remoteDns)
+            appendSniffer(settings)
+
+            append("proxies:\n")
+            append(
+                "  - {name: $CARRIER_PROXY, type: socks5, server: 127.0.0.1, " +
+                    "port: $socksPort${credentials(auth)}, udp: $udp}\n",
+            )
+
+            // A group of one, rather than routing to the proxy by name. mihomo
+            // reports health and traffic per group, so the screens and the logs
+            // can describe a carrier exactly as they describe an exit node
+            // instead of having a second shape to understand.
+            append("proxy-groups:\n")
+            append("  - name: $EXIT_GROUP\n    type: select\n    proxies: [$CARRIER_PROXY]\n")
+
+            appendCarrierRules(settings, udp)
+        }
+
+    /**
+     * The rules for a carrier: the ordinary ones, plus what it cannot do.
+     *
+     * A carrier with no UDP gets an explicit refusal for it. Without one the
+     * datagrams match `MATCH` and are handed to a proxy that drops them, and
+     * dropping is worse than refusing: a refused datagram makes a resolver fall
+     * back to TCP and a browser fall back off QUIC, while a dropped one makes
+     * both wait out a timeout on every request.
+     */
+    private fun StringBuilder.appendCarrierRules(settings: ChainSettings, udp: Boolean) {
+        append("rules:\n")
+        settings.blockRules().forEach { pattern ->
+            mihomoRules(pattern, "REJECT").forEach { append("  - $it\n") }
+        }
+        settings.directRules().forEach { pattern ->
+            mihomoRules(pattern, "DIRECT").forEach { append("  - $it\n") }
+        }
+        if (!udp) {
+            // After the user's rules and before MATCH: a destination they chose
+            // to block stays blocked, and one they chose to send direct still
+            // goes direct over UDP, because direct does not go through this
+            // carrier at all.
+            append("  - NETWORK,udp,REJECT\n")
+        }
+        append("  - MATCH,$EXIT_GROUP\n")
+    }
+
+    /**
+     * The user's routing rules, translated for mihomo.
+     *
+     * They have to live here and not only in the engine. With a chain running,
+     * mihomo owns the interface and dials each node *through* the engine's
+     * SOCKS5 listener, so the engine only ever sees the node's address and
+     * never the destination the user asked for. A rule written against a
+     * domain is invisible to it, which is why the rules added for the plain
+     * tunnel do nothing at all once a chain is switched on.
+     */
+    private fun StringBuilder.appendRules(settings: ChainSettings) {
+        append("rules:\n")
+        // Refusals first, so a blocked destination cannot also match a direct
+        // rule further down and get dialled anyway.
+        settings.blockRules().forEach { pattern ->
+            mihomoRules(pattern, "REJECT").forEach { append("  - $it\n") }
+        }
+        settings.directRules().forEach { pattern ->
+            mihomoRules(pattern, "DIRECT").forEach { append("  - $it\n") }
+        }
+        // Everything not named goes to the exit group. Last and unconditional:
+        // without it the file is a list of exceptions with no default, and
+        // mihomo treats an unmatched connection as direct.
+        append("  - MATCH,$EXIT_GROUP\n")
+    }
+
+    /**
+     * One rule in our grammar as mihomo rules, or empty if it is neither.
+     *
+     * A list rather than one string because `private` is several ranges.
+     *
+     * Address rules carry `no-resolve` so a domain is never looked up merely
+     * to test it against a block -- that lookup would leave the tunnel and
+     * name the destination to whoever is watching, which is the thing the rule
+     * was written to prevent.
+     */
+    internal fun mihomoRules(pattern: String, action: String): List<String> {
+        // Through the shared grammar, so `*.name`, a bare address and a pasted
+        // URL mean here what they mean to the engine and to the lookup.
+        val canonical = RouteRule.canonical(pattern) ?: return emptyList()
+        if (canonical == "private") return privateRules(action)
+        val value = canonical.substringAfter(':')
+        return when (canonical.substringBefore(':')) {
+            "domain" -> listOf("DOMAIN-SUFFIX,$value,$action")
+            "full" -> listOf("DOMAIN,$value,$action")
+            "keyword" -> listOf("DOMAIN-KEYWORD,$value,$action")
+            "regexp" -> listOf("DOMAIN-REGEX,$value,$action")
+            "cidr" -> listOf("${if (':' in value) "IP-CIDR6" else "IP-CIDR"},$value,$action,no-resolve")
+            "port" -> listOf("DST-PORT,$value,$action")
+            else -> emptyList()
+        }
+    }
+
+    /**
+     * `private`, spelled out.
+     *
+     * Not GEOIP,PRIVATE: that wants a database this build does not ship, and a
+     * rule mihomo cannot resolve is one it drops without saying so.
+     */
+    private fun privateRules(action: String): List<String> = listOf("DOMAIN,localhost,$action") + listOf(
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",
+        "127.0.0.0/8",
+        "100.64.0.0/10",
+        "192.0.2.0/24",
+        "198.51.100.0/24",
+        "203.0.113.0/24",
+        "0.0.0.0/32",
+        "255.255.255.255/32",
+        "::1/128",
+        "::/128",
+        "fc00::/7",
+        "fe80::/10",
+    ).map { "${if (':' in it) "IP-CIDR6" else "IP-CIDR"},$it,$action,no-resolve" }
+
+    /**
+     * Resolvers live inside the chain.
+     *
+     * A query that escapes names the destination even when the traffic itself
+     * does not, and here it would also be answered by the interface asking the
+     * question. The `#$TUNNEL_PROXY` fragment is mihomo's syntax for dialling a
+     * resolver through a named proxy, which is what keeps that from happening.
+     */
+    /**
+     * Domain rules for connections that arrive as a bare address.
+     *
+     * fake-ip only recovers a name the phone looked up through us. Private DNS
+     * set to a hostname, or a browser with its own DoH, resolves around it, and
+     * without this every domain rule missed and the traffic went to the exit.
+     * override-destination stays off: the name is used to pick a rule, and the
+     * connection still goes to the address the app asked for.
+     */
+    private fun StringBuilder.appendSniffer(settings: ChainSettings) {
+        if (!settings.sniff) return
+        append("sniffer:\n")
+        append("  enable: true\n")
+        append("  override-destination: false\n")
+        append("  force-dns-mapping: true\n")
+        append("  parse-pure-ip: true\n")
+        append("  sniff:\n")
+        append("    TLS: {ports: [443, 8443]}\n")
+        append("    HTTP: {ports: [80, 8080-8880]}\n")
+        append("    QUIC: {ports: [443, 8443]}\n")
+    }
+
+    private fun StringBuilder.appendDns(socksPort: Int?, proxyName: String = TUNNEL_PROXY, remoteDns: String = "") {
+        val via = if (socksPort != null) "#$proxyName" else ""
+        append("dns:\n")
+        append("  enable: true\n")
+        append("  ipv6: true\n")
+        append("  listen: 0.0.0.0:1053\n")
+        // fake-ip, so a name is answered instantly from a reserved range and the
+        // real lookup happens at the far end where it cannot leak.
+        append("  enhanced-mode: fake-ip\n")
+        append("  fake-ip-range: 198.19.0.1/16\n")
+        // A name the user sends around the tunnel is looked up by their own
+        // network, as it would be without the app: a domestic site may resolve
+        // differently, or not at all, from a resolver abroad. ChainController
+        // hands mihomo those servers; "system" means nothing until it does.
+        append("  direct-nameserver:\n")
+        append("    - system\n")
+        append("  nameserver:\n")
+        if (remoteDns.isNotBlank()) {
+            require(remoteDns.startsWith("https://") || remoteDns.startsWith("tcp://")) { "Invalid remote DNS" }
+            append("    - ${quote(remoteDns + via)}\n")
+        } else {
+            append("    - https://1.1.1.1/dns-query$via\n")
+            append("    - https://dns.google/dns-query$via\n")
+        }
+    }
+
+    private fun StringBuilder.appendProviders(
+        settings: ChainSettings,
+        through: String,
+        fetch: String,
+    ): List<String> {
+        val names = mutableListOf<String>()
+        val sources = settings.sources.filter { it.enabled && it.url.isNotBlank() }
+        val manual = settings.manual.trim()
+        if (sources.isEmpty() && manual.isEmpty() && settings.worker.isBlank()) return names
+
+        append("proxy-providers:\n")
+        sources.forEach { source ->
+            val key = providerKey(source.url)
+            names += key
+            append("  $key:\n")
+            append("    type: http\n")
+            append("    url: ${quote(source.url)}\n")
+            append("    interval: 3600\n")
+            append("    proxy: $fetch\n")
+            append("    path: ./providers/$key.yaml$through\n")
+            append(healthCheck())
+        }
+        if (manual.isNotEmpty()) {
+            names += MANUAL_PROVIDER
+            append("  $MANUAL_PROVIDER:\n")
+            append("    type: file\n")
+            append("    path: ./providers/manual.txt$through\n")
+            append(healthCheck())
+        }
+        if (settings.worker.isNotBlank()) {
+            names += WORKER_PROVIDER
+            append("  $WORKER_PROVIDER:\n    type: file\n    path: ./providers/worker.yaml$through\n")
+            append(healthCheck())
+        }
+        return names
+    }
+
+    /**
+     * A provider's name, derived from its URL rather than its position.
+     *
+     * Position was wrong in a way that looked like a caching bug. Delete the
+     * first subscription, add a different one, and it takes the same name and
+     * the same cache file -- so mihomo finds a provider it already has, less
+     * than its refresh interval old, and serves the previous subscription's
+     * nodes for the new one. Keying on the URL makes a different subscription a
+     * different provider, which is what it is.
+     */
+    fun providerKey(url: String): String {
+        var hash = 0x811c9dc5u
+        url.trim().forEach { character ->
+            hash = (hash xor character.code.toUInt()) * 0x01000193u
+        }
+        return "source${hash.toString(16).padStart(8, '0')}"
+    }
+
+    /**
+     * `lazy: true` so a node nobody selected is not dialled every five minutes.
+     * On a phone that is the difference between a health check and a battery
+     * complaint.
+     */
+    private fun healthCheck(): String =
+        "    health-check: {enable: true, url: \"$HEALTH_CHECK_URL\", expected-status: 204, interval: 300, lazy: true}\n"
+
+    /**
+     * A YAML double-quoted scalar.
+     *
+     * Matters because a subscription URL may carry `#`, which unquoted starts a
+     * comment and silently truncates the URL to whatever came before it -- the
+     * provider then fetches a different address than the user pasted, or none.
+     */
+    private fun quote(value: String): String = buildString {
+        append('"')
+        value.forEach { character ->
+            when (character) {
+                '"', '\\' -> append('\\').append(character)
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> if (character.code < 0x20) {
+                    append("\\x%02x".format(character.code))
+                } else {
+                    append(character)
+                }
+            }
+        }
+        append('"')
+    }
+}
