@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name" translatable="false">WhiteAesther</string>
+    <string name="app_name" translatable="false">JETPiNG</string>
     <string name="connection_channel_name">Connection status</string>
     <string name="connection_channel_description">Shows the active WhiteAesther proxy or device VPN.</string>
     <string name="stop">Stop</string>
