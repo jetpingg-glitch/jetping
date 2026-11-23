@@ -225,7 +225,7 @@ fun SplitTunnelScreen(
 
         item(key = "footer") {
             Note(
-                stringResource(R.string.whiteaesther_itself_is_never_in_this_list),
+                stringResource(R.string.JETPiNG_itself_is_never_in_this_list),
             )
             Spacer(Modifier.height(26.dp))
         }

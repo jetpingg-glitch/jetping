@@ -2458,7 +2458,7 @@ private fun CommunityFooter() {
         Icon(AetherIcons.Globe, null, Modifier.size(22.dp), colors.text3.copy(alpha = 0.5f))
         Spacer(Modifier.height(6.dp))
         Text(
-            stringResource(R.string.whiteaesther_com_whitedns_whiteaesther_buildconf, com.whitedns.whiteaesther.BuildConfig.VERSION_NAME),
+            stringResource(R.string.JETPiNG_com_whitedns_JETPiNG_buildconf, com.whitedns.whiteaesther.BuildConfig.VERSION_NAME),
             style = AetherTheme.type.Small.copy(fontSize = 12.sp),
             color = colors.text3,
         )
@@ -2478,7 +2478,7 @@ fun IdentityScreen(
         CrumbBar(stringResource(R.string.advanced), onBack = onBack)
         PageTitle(
             stringResource(R.string.identity_access),
-            stringResource(R.string.whiteaesther_issues_this_device_its_own_identity),
+            stringResource(R.string.JETPiNG_issues_this_device_its_own_identity),
         )
         AetherCard {
             FactRow(stringResource(R.string.fact_identity), stringResource(R.string.generated_on_first_connect))
