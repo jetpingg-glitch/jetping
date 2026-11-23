@@ -602,7 +602,7 @@ fun HomeScreen(
             AetherCard {
                 CardHead(
                     stringResource(R.string.version_update_version_is_out, update.version),
-                    stringResource(R.string.you_are_on_com_whitedns_whiteaesther_buildconfig, com.whitedns.whiteaesther.BuildConfig.VERSION_NAME),
+                    stringResource(R.string.you_are_on_com_whitedns_JETPiNG_buildconfig, com.whitedns.whiteaesther.BuildConfig.VERSION_NAME),
                 )
                 Column(
                     Modifier.padding(11.dp),
