@@ -157,7 +157,7 @@ fun ChainScreen(
 
         if (!chain.enabled) {
             Note(
-                stringResource(R.string.with_this_off_whiteaesther_works_exactly_as),
+                stringResource(R.string.with_this_off_JETPiNG_works_exactly_as),
             )
             return@ScreenColumn
         }
