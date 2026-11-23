@@ -2369,7 +2369,7 @@ fun SettingsScreen(
                 } else {
                     CardHead(
                         stringResource(R.string.keep_running_in_the_background),
-                        stringResource(R.string.android_is_allowed_to_suspend_whiteaesther_while),
+                        stringResource(R.string.android_is_allowed_to_suspend_JETPiNG_while),
                     )
                     Box(Modifier.padding(11.dp)) {
                         PrimaryButton(
