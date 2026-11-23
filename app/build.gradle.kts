@@ -57,7 +57,7 @@ val androidNdkHome = providers.environmentVariable("ANDROID_NDK_HOME")
     .map { it.replace('\\', '/') }
 
 android {
-    namespace = "com.jetping.app"
+    namespace = "com.whitedns.whiteaesther"
     // 37 because tor-android requires it, and only for compiling:
     // targetSdk stays at 36 deliberately. Raising that is a behaviour
     // change for every permission and background rule in the app, and it
