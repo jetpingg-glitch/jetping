@@ -302,9 +302,8 @@ fun HomeScreen(
     val state = status.stage.toConnectState()
     val configuration = LocalConfiguration.current
     var detailsExpanded by rememberSaveable { mutableStateOf(false) }
-    var chooseMethod by rememberSaveable { mutableStateOf(false) }
     val television = LocalTvMode.current
-    val changeMethod: () -> Unit = { if (television) onGoToRoutes() else { chooseMethod = true } }
+    val changeMethod: () -> Unit = { onGoToRoutes() }
 
     // Measured from the moment the service recorded, not from when this screen
     // first saw it, so rotating the device or returning to a recreated activity
@@ -407,15 +406,14 @@ fun HomeScreen(
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         }
-        HomeTrafficStrip(traffic, active = status.stage == EngineStage.CONNECTED, addresses = addresses)
         HomeConnectionControls(
             settings = settings, status = status,
-            chooseMethod = chooseMethod, onChooseMethod = { chooseMethod = it },
-            onSettingsChange = onSettingsChange, support = methodSupport, onOpenMethodPage = onGoToRoutes,
+            onSettingsChange = onSettingsChange,
             onGoToAdvanced = onGoToAdvanced, onGoToChain = onGoToChain,
             chainSelection = chainSelection, chainAutomaticPick = chainAutomaticPick,
             onOpenAdvancedGroup = onOpenAdvancedGroup,
         )
+        HomeTrafficStrip(traffic, active = status.stage == EngineStage.CONNECTED, addresses = addresses)
 
         val attention = homeAttention(settings, status)
         if (attention != null) {
@@ -2251,6 +2249,7 @@ fun SettingsScreen(
     onAddWidget: () -> Unit,
     onGoToAdvanced: () -> Unit,
     onGoToDiagnostics: () -> Unit,
+    onGoToMethod: () -> Unit = {},
     
     isTelevision: Boolean = false,
     advancedModifier: Modifier = Modifier,
@@ -2280,6 +2279,17 @@ fun SettingsScreen(
             // "Show advanced controls" was here. Since Advanced became its own
             // pages it opened one folded TLS section and nothing else, and that
             // section has its own toggle.
+        }
+
+        Spacer(Modifier.height(12.dp))
+        AetherCard {
+            RowCard(
+                icon = AetherIcons.Globe,
+                title = stringResource(R.string.home_method),
+                subtitle = settings.methodSummary(),
+                modifier = Modifier.testTag("settings-connection-method"),
+                onClick = onGoToMethod,
+            )
         }
 
         // Only where the platform can ask. Before Android 13 the tile is still

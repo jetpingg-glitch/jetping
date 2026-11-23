@@ -51,13 +51,13 @@ data class AetherColors(
 )
 
 private val DarkAether = AetherColors(
-    ink0 = Color(0xFF050E09),
-    ink1 = Color(0xFF050E09),
-    ink2 = Color(0xFF09140F),
-    ink3 = Color(0xFF0F1B16),
-    line = Color(0xFF273730),
-    lineSoft = Color(0xFF1B2A23),
-    lineStrong = Color(0xFF3D5147),
+    ink0 = Color(0xFF000000),
+    ink1 = Color(0xFF000000),
+    ink2 = Color(0x16FFFFFF),
+    ink3 = Color(0x20FFFFFF),
+    line = Color(0x30FFFFFF),
+    lineSoft = Color(0x20FFFFFF),
+    lineStrong = Color(0x45FFFFFF),
     text = Color(0xFFE4EEE9),
     text2 = Color(0xFF9BA8A2),
     text3 = Color(0xFF9BA8A2),
@@ -68,7 +68,7 @@ private val DarkAether = AetherColors(
     signalLive = Color(0xFF3FBE90),
     signalFailed = Color(0xFFF07F77),
     cyan = Color(0xFF71CDA7),
-    track = Color(0xFF273730),
+    track = Color(0x24FFFFFF),
     isDark = true,
 )
 
@@ -155,11 +155,7 @@ fun WhiteAestherTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     content: @Composable () -> Unit,
 ) {
-    val dark = when (themeMode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-    }
+    val dark = true
     val colors = if (dark) DarkAether else LightAether
     val view = LocalView.current
     if (!view.isInEditMode) {

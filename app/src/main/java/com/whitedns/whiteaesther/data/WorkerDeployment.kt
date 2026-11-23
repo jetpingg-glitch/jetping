@@ -32,7 +32,7 @@ data class WorkerDeployment(
         require(listOf(dnsZone, dnsRecord).all { it.isBlank() || it.matches(Regex("[a-fA-F0-9]{32}")) }) { "Invalid saved DNS record" }
     }
 
-    val nodeName: String get() = "WhiteAesther ${if (pages) "Pages" else "Worker"} - $name"
+    val nodeName: String get() = "JETPiNG ${if (pages) "Pages" else "Worker"} - $name"
     val key: String get() = "$accountId/${if (pages) "pages" else "workers"}/$name"
     val connectionHost: String get() = if (domainPending) host else customDomain.ifBlank { host }
 

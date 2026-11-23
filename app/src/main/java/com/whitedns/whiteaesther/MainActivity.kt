@@ -461,7 +461,7 @@ class MainActivity : ComponentActivity() {
     private fun shareReport(report: String) {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "WhiteAesther diagnostics")
+            putExtra(Intent.EXTRA_SUBJECT, "JETPiNG diagnostics")
             putExtra(Intent.EXTRA_TEXT, report)
         }
         if (intent.resolveActivity(packageManager) == null) {
@@ -515,7 +515,7 @@ class MainActivity : ComponentActivity() {
 
     private fun copyReport(report: String) {
         val clipboard = getSystemService(ClipboardManager::class.java) ?: return
-        clipboard.setPrimaryClip(ClipData.newPlainText("WhiteAesther diagnostics", report))
+        clipboard.setPrimaryClip(ClipData.newPlainText("JETPiNG diagnostics", report))
     }
 
     private fun openExternal(intent: Intent, unavailable: String) {

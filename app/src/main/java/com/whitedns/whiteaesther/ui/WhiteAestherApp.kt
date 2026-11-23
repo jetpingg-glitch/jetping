@@ -296,6 +296,7 @@ fun WhiteAestherApp(
                         onAddWidget = onAddWidget,
                         onGoToAdvanced = { openFromRow(Destination.ADVANCED) },
                         onGoToDiagnostics = { openFromRow(Destination.DIAGNOSTICS) },
+                        onGoToMethod = { openDetail(Destination.METHOD) },
                         
                         isTelevision = isTelevision,
                         advancedModifier = Modifier.focusRequester(rowFocus.getValue(Destination.ADVANCED)),

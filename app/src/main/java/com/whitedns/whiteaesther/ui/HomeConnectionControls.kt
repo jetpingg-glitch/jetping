@@ -24,11 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,11 +78,7 @@ internal fun AppSettings.methodSummary(): String = when {
 internal fun HomeConnectionControls(
     settings: AppSettings,
     status: EngineStatus,
-    chooseMethod: Boolean,
-    onChooseMethod: (Boolean) -> Unit,
     onSettingsChange: (AppSettings) -> Unit,
-    support: MethodSheetSupport,
-    onOpenMethodPage: () -> Unit,
     onGoToAdvanced: () -> Unit,
     onGoToChain: () -> Unit,
     chainSelection: String? = null,
@@ -94,14 +87,9 @@ internal fun HomeConnectionControls(
 ) {
     val colors = AetherTheme.colors
     val editable = status.stage == EngineStage.IDLE || status.stage == EngineStage.ERROR
-    val television = LocalTvMode.current
     val context = LocalContext.current
     val worker = !settings.automaticCarrier && settings.carrier == Carrier.WORKER
     val profiles = !settings.automaticCarrier && settings.carrier == Carrier.PROXY
-    LaunchedEffect(editable) {
-        if (!editable) onChooseMethod(false)
-    }
-
     // VPN or proxy-only, always in view under the connect button: it decides
     // whether the phone is covered at all, so it is not tucked away in a menu.
     Row(
@@ -140,10 +128,7 @@ internal fun HomeConnectionControls(
         }
     }
     Spacer(Modifier.height(12.dp))
-    AetherCard {
-        HomeMethodRow(settings, editable) {
-            if (television) onOpenMethodPage() else onChooseMethod(true)
-        }
+    if (worker || profiles || settings.chain.enabled) AetherCard {
         // Only the follow-ups a chosen method cannot work without.
         if (worker) {
             Divider()
@@ -177,63 +162,9 @@ internal fun HomeConnectionControls(
         Spacer(Modifier.height(12.dp))
     }
 
-    if (chooseMethod && editable) {
-        ModalBottomSheet(
-            onDismissRequest = { onChooseMethod(false) },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = colors.ink2,
-            contentColor = colors.text,
-        ) {
-            Column(
-                Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp).padding(bottom = 24.dp),
-            ) {
-                Text(stringResource(R.string.method_sheet_title), style = AetherTheme.type.PageTitle, color = colors.text)
-                Spacer(Modifier.height(12.dp))
-                SimpleMethodChoices(settings, support, onChange = onSettingsChange, onDone = { onChooseMethod(false) })
-                MoreConnectionSettings(
-                    settings,
-                    onOpen = { group -> onChooseMethod(false); onOpenAdvancedGroup(group) },
-                    onAll = { onChooseMethod(false); onGoToAdvanced() },
-                )
-            }
-        }
-    }
+
 }
 
-/** What Automatic means, or which method is in use, with a way to change it. */
-@Composable
-private fun HomeMethodRow(settings: AppSettings, enabled: Boolean, onClick: () -> Unit) {
-    val colors = AetherTheme.colors
-    val interaction = remember { MutableInteractionSource() }
-    val shape = RoundedCornerShape(8.dp)
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 72.dp)
-            .tvControllerActivation(enabled, onClick)
-            .clickable(interaction, LocalIndication.current, enabled = enabled, role = Role.Button, onClick = onClick)
-            .controllerFocus(interaction, shape, enabled).testTag("home-method")
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        MethodIcon(settings.methodIcon(), selected = true)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(settings.methodSummary(), style = AetherTheme.type.RowTitle,
-                color = if (enabled) colors.text else colors.text2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(
-                stringResource(if (settings.automaticCarrier) R.string.method_auto_simple else R.string.home_method),
-                style = AetherTheme.type.Small, color = colors.text2,
-            )
-        }
-        Text(stringResource(R.string.home_method_change), style = AetherTheme.type.Small,
-            color = if (enabled) colors.brand else colors.text2)
-    }
-}
-
-private fun AppSettings.methodIcon(): androidx.compose.ui.graphics.vector.ImageVector = when {
-    automaticCarrier -> AetherIcons.Sparkle
-    else -> carrier.simpleIcon
-}
 
 internal val Carrier.simpleIcon get() = when (this) {
     Carrier.AETHER -> AetherIcons.Pulse

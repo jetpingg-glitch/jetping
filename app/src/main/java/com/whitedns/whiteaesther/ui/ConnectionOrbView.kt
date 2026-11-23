@@ -56,6 +56,10 @@ internal class ConnectionOrbView(
     private val wolfPaint = Paint(
         Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG
     )
+    private val wolfGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var wolfEntranceProgress = 1f
+    private var wolfEntrancePlayed = false
+    private var wolfEntranceAnimator: ValueAnimator? = null
 
     private val wolfBitmap: Bitmap? by lazy {
         BitmapFactory.decodeResource(resources, R.drawable.jetping_wolf)
@@ -183,6 +187,22 @@ internal class ConnectionOrbView(
     fun resumeAnimation() {
         isPaused = false
         lastFrameTime = 0L
+        if (!wolfEntrancePlayed) {
+            wolfEntrancePlayed = true
+            if (ValueAnimator.areAnimatorsEnabled() && isAttachedToWindow) {
+                wolfEntranceProgress = 0f
+                wolfEntranceAnimator?.cancel()
+                wolfEntranceAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+                    duration = 620L
+                    interpolator = PathInterpolator(0.18f, 0.8f, 0.24f, 1f)
+                    addUpdateListener {
+                        wolfEntranceProgress = it.animatedValue as Float
+                        invalidate()
+                    }
+                    start()
+                }
+            } else wolfEntranceProgress = 1f
+        }
         startMasterAnimation()
     }
 
@@ -219,38 +239,43 @@ internal class ConnectionOrbView(
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (!isPaused && ValueAnimator.areAnimatorsEnabled()) {
-            updateParticles()
-        }
-
+        if (!isPaused && ValueAnimator.areAnimatorsEnabled()) updateParticles()
         val cx = width / 2f
         val cy = height / 2f
-
         canvas.save()
         canvas.scale(pressScale, pressScale, cx, cy)
-
-        if (orbPressed) {
-            canvas.translate(
-                0f,
-                dp(3f) * (1f - pressScale) / 0.06f
-            )
-        }
-
-        // Particles: no external halo
+        if (orbPressed) canvas.translate(0f, dp(3f) * (1f - pressScale) / 0.06f)
         drawParticles(canvas)
-
-        buildSmoothBlobPath(cx, cy)
-        drawOrbBase(canvas, cx, cy)
-        drawOrbEffects(canvas, cx, cy)
-
+        drawWolfLogo(canvas, cx, cy - dp(8f))
         if (shadeOpacity > 0f) {
-            drawPressShade(canvas, cx, cy)
+            overlayPaint.shader = null
+            overlayPaint.color = Color.argb((shadeOpacity * 24f).toInt(), 0, 0, 0)
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), overlayPaint)
         }
-
-        drawIcon(canvas, cx, cy - dp(6f))
-        drawLabel(canvas, cx, cy + dp(36f))
-
+        drawLabel(canvas, cx, cy + orbRadius * 1.05f)
         canvas.restore()
+    }
+
+
+    private fun drawWolfLogo(canvas: Canvas, cx: Float, cy: Float) {
+        val bitmap = wolfBitmap ?: return
+        if (bitmap.isRecycled) return
+        val progress = wolfEntranceProgress.coerceIn(0f, 1f)
+        val slide = dp(58f) * (1f - progress)
+        val totalSize = min(width, height) * 0.72f
+        val half = totalSize / 2f
+        val logoCenterY = cy - dp(10f) + slide
+        iconBounds.set(cx - half, logoCenterY - half, cx + half, logoCenterY + half)
+        wolfGlowPaint.shader = RadialGradient(
+            cx, logoCenterY, totalSize * 0.56f,
+            intArrayOf(Color.argb(95, 0, 150, 255), Color.argb(28, 0, 110, 255), Color.TRANSPARENT),
+            floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
+        )
+        canvas.drawCircle(cx, logoCenterY, totalSize * 0.56f, wolfGlowPaint)
+        wolfPaint.alpha = (255 * progress).toInt().coerceAtLeast(150)
+        canvas.drawBitmap(bitmap, null, iconBounds, wolfPaint)
+        wolfPaint.alpha = 255
+        wolfGlowPaint.shader = null
     }
 
     fun setOrbPressed(pressed: Boolean) {
@@ -477,59 +502,6 @@ internal class ConnectionOrbView(
         )
 
         canvas.drawPath(orbPath, overlayPaint)
-    }
-
-    private fun drawIcon(canvas: Canvas, cx: Float, cy: Float) {
-        if (state == ConnectState.LIVE) {
-            val bitmap = wolfBitmap
-
-            if (bitmap != null && !bitmap.isRecycled) {
-                val size = orbRadius * 0.72f
-
-                iconBounds.set(
-                    cx - size,
-                    cy - size,
-                    cx + size,
-                    cy + size
-                )
-
-                canvas.drawBitmap(
-                    bitmap,
-                    null,
-                    iconBounds,
-                    wolfPaint
-                )
-            }
-
-            return
-        }
-
-        iconPaint.color = currentForeground()
-
-        val size = dp(14f)
-
-        iconBounds.set(
-            cx - size,
-            cy - size * 0.7f,
-            cx + size,
-            cy + size * 1.3f
-        )
-
-        canvas.drawArc(
-            iconBounds,
-            -55f,
-            290f,
-            false,
-            iconPaint
-        )
-
-        canvas.drawLine(
-            cx,
-            cy - size * 1.3f,
-            cx,
-            cy + dp(2f),
-            iconPaint
-        )
     }
 
     private fun drawLabel(canvas: Canvas, cx: Float, cy: Float) {
@@ -839,6 +811,8 @@ internal class ConnectionOrbView(
 
     private fun cancelAllAnimations() {
         transitionAnimator?.cancel()
+        wolfEntranceAnimator?.cancel()
+        wolfEntranceProgress = 1f
         transitionProgress = 1f
 
         masterAnimator?.cancel()
