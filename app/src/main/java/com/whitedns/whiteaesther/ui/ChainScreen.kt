@@ -134,7 +134,7 @@ fun ChainScreen(
             AttentionCard(
                 tone = colors.signalFailed,
                 title = stringResource(R.string.not_available_in_this_build),
-                body = stringResource(R.string.this_copy_of_whiteaesther_does_not_include),
+                body = stringResource(R.string.this_copy_of_JETPiNG_does_not_include),
             )
             return@ScreenColumn
         }
